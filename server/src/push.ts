@@ -15,12 +15,33 @@ export interface PushDevice {
 /** Returns "sent", "gone" (token no longer valid) or "failed" (worth retrying). */
 export type SendPush = (device: PushDevice, message: PushMessage) => Promise<"sent" | "gone" | "failed">;
 
+interface LessonEntry {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+}
+
+/** Keeps the push well inside APNs' 4 KB limit, since Chinese text is 3 bytes per character. */
+const MAX_LESSON_TEXT = 1000;
+
+/** The lesson itself, so it can be read from the notification without opening the app. */
+function lessonText(body: string): string {
+  const lesson = JSON.parse(body) as { intro?: string; characters?: (LessonEntry & { uses?: LessonEntry[] })[] };
+  const entry = ({ hanzi, pinyin, english }: LessonEntry) => `${hanzi} ${pinyin}: ${english}`;
+  const characters = (lesson.characters ?? []).map((character) =>
+    [character, ...(character.uses ?? []).slice(0, 2)].map(entry).join("\n"),
+  );
+  const text = [lesson.intro, ...characters].filter(Boolean).join("\n\n");
+  const glyphs = Array.from(text);
+  return glyphs.length > MAX_LESSON_TEXT ? `${glyphs.slice(0, MAX_LESSON_TEXT).join("")}…` : text;
+}
+
 export async function morningMessage(db: D1Database, now: Date): Promise<PushMessage | null> {
   const { date } = torontoParts(now);
   const backlog = backlogOf(await deckCounts(db, now.getTime()));
-  const lesson = await db.prepare("SELECT title FROM lessons WHERE date = ?").bind(date).first<{ title: string }>();
+  const lesson = await db.prepare("SELECT title, body FROM lessons WHERE date = ?").bind(date).first<{ title: string; body: string }>();
   const due = `${backlog} card${backlog === 1 ? "" : "s"} due`;
-  if (lesson) return { title: lesson.title, body: `Today's lesson is ready. ${due}.`, lessonDate: date };
+  if (lesson) return { title: lesson.title, body: `${lessonText(lesson.body)}\n\n${due}.`.trim(), lessonDate: date };
   if (backlog > 0) return { title: due, body: "No new lesson today, just reviews.", lessonDate: null };
   return null;
 }

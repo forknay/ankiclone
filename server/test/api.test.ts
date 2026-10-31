@@ -263,6 +263,43 @@ describe("morning push", () => {
     expect(sent[0].message.lessonDate).toBe("2026-11-03");
   });
 
+  it("puts the intro, new characters and common uses in the notification", async () => {
+    await seedKnown("我", nineAM.getTime() - 1000);
+    await addDevice();
+    const body = JSON.stringify({
+      intro: "Today's character is 星 xīng.",
+      characters: [
+        {
+          hanzi: "星",
+          pinyin: "xīng",
+          english: "star",
+          uses: [
+            { hanzi: "星期", pinyin: "xīng qī", english: "week" },
+            { hanzi: "星星", pinyin: "xīng xing", english: "stars" },
+            { hanzi: "明星", pinyin: "míng xīng", english: "celebrity" },
+          ],
+        },
+      ],
+    });
+    await env.DB.prepare("INSERT INTO lessons (date, title, body, created_at, updated_seq) VALUES ('2026-11-03', 'New: 星', ?, 0, 1)").bind(body).run();
+    const { sent, send } = sends();
+    await runMorningPush(env.DB, nineAM, send);
+    expect(sent[0].message.body).toBe(
+      "Today's character is 星 xīng.\n\n星 xīng: star\n星期 xīng qī: week\n星星 xīng xing: stars\n\n1 card due.",
+    );
+  });
+
+  it("keeps a very long lesson within the push size limit", async () => {
+    await seedKnown("我", nineAM.getTime() - 1000);
+    await addDevice();
+    const body = JSON.stringify({ intro: "星".repeat(2000) });
+    await env.DB.prepare("INSERT INTO lessons (date, title, body, created_at, updated_seq) VALUES ('2026-11-03', 'Long', ?, 0, 1)").bind(body).run();
+    const { sent, send } = sends();
+    await runMorningPush(env.DB, nineAM, send);
+    expect(new TextEncoder().encode(sent[0].message.body).length).toBeLessThan(3100);
+    expect(sent[0].message.body.endsWith("1 card due.")).toBe(true);
+  });
+
   it("retries after a failure and removes dead tokens", async () => {
     await seedKnown("我", nineAM.getTime() - 1000);
     await addDevice();

@@ -1,6 +1,6 @@
 import { agentContext, postDaily } from "./agent";
 import { apnsSender, ApnsConfig } from "./apns";
-import { PushDevice, runMorningPush } from "./push";
+import { morningMessage, PushDevice, runMorningPush } from "./push";
 import { sync, syncInputError, SyncInput } from "./sync";
 import type { DailyInput } from "./validate";
 
@@ -42,7 +42,8 @@ export default {
       if (route === "POST /agent/test-push") {
         const { results: devices } = await env.DB.prepare("SELECT token, environment FROM devices").all<PushDevice>();
         const send = apnsSender(env, new Date(now));
-        const message = { title: "Test notification", body: "Push is working.", lessonDate: null };
+        // Sends the real morning message, so a test shows exactly what would arrive at 9:00.
+        const message = (await morningMessage(env.DB, new Date(now))) ?? { title: "Test notification", body: "Push is working.", lessonDate: null };
         return json({ outcomes: await Promise.all(devices.map((device) => send(device, message))) });
       }
       if (route === "GET /agent/context") return json(await agentContext(env.DB, now));
