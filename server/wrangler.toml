@@ -1,0 +1,17 @@
+name = "ankiclone"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ankiclone"
+database_id = "9248bf26-0708-497d-861a-fbeb8fff24d3"
+migrations_dir = "migrations"
+
+# Covers 9 AM Toronto in both EST (14 UTC) and EDT (13 UTC); the handler checks the local hour,
+# and the repeats within the hour retry a failed push.
+[triggers]
+crons = ["*/15 13-14 * * *"]
+
+# Secrets, set with `wrangler secret put`:
+# APP_TOKEN, AGENT_TOKEN, APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC
