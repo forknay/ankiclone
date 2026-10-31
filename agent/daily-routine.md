@@ -43,8 +43,8 @@ Authorization: Bearer $AGENT_TOKEN
 ```json
 {
   "date": "<today from the context>",
-  "title": "今天的新字：星",
-  "intro": "One or two friendly sentences introducing today's characters.",
+  "title": "New today: 星 xīng",
+  "intro": "One or two friendly sentences in English introducing today's characters.",
   "characters": [
     {
       "hanzi": "星",
@@ -63,8 +63,10 @@ Authorization: Bearer $AGENT_TOKEN
 }
 ```
 
-Rules, all enforced by the server:
+Rules, enforced by the server unless noted:
 
+- Write `title` and `intro` in English. Chinese may appear in them only as known or new characters,
+  each followed by its pinyin (not checked by the server, but the learner can't read other text).
 - Simplified characters only. Each `characters` entry is exactly one character, with at least one
   use: give 2–4 common uses, including a word and an example sentence.
 - Pinyin has lowercase tone marks and one space-separated syllable per character, with no

@@ -1,6 +1,6 @@
 import { agentContext, postDaily } from "./agent";
 import { apnsSender, ApnsConfig } from "./apns";
-import { runMorningPush } from "./push";
+import { PushDevice, runMorningPush } from "./push";
 import { sync, syncInputError, SyncInput } from "./sync";
 import type { DailyInput } from "./validate";
 
@@ -37,8 +37,14 @@ export default {
     const now = Date.now();
 
     // The app and the morning routine have separate tokens, so neither can use the other's endpoints.
-    if (route === "GET /agent/context" || route === "POST /agent/daily") {
+    if (route === "GET /agent/context" || route === "POST /agent/daily" || route === "POST /agent/test-push") {
       if (!(await tokenMatches(token, env.AGENT_TOKEN))) return json({ error: "unauthorized" }, 401);
+      if (route === "POST /agent/test-push") {
+        const { results: devices } = await env.DB.prepare("SELECT token, environment FROM devices").all<PushDevice>();
+        const send = apnsSender(env, new Date(now));
+        const message = { title: "Test notification", body: "Push is working.", lessonDate: null };
+        return json({ outcomes: await Promise.all(devices.map((device) => send(device, message))) });
+      }
       if (route === "GET /agent/context") return json(await agentContext(env.DB, now));
       const input = await readJson<DailyInput>(request);
       if (!input) return json({ ok: false, errors: ["body must be JSON"] }, 400);

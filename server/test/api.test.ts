@@ -72,6 +72,7 @@ describe("auth", () => {
   it("rejects missing or crossed tokens", async () => {
     expect((await call("/agent/context", "nope")).status).toBe(401);
     expect((await app("/agent/context")).status).toBe(401);
+    expect((await app("/agent/test-push", {})).status).toBe(401);
     expect((await agent("/sync", { cursor: 0, reviews: [], deckSettings: [] })).status).toBe(401);
   });
 });

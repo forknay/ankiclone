@@ -1,6 +1,8 @@
 name = "ankiclone"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
+workers_dev = true
+preview_urls = false
 
 [[d1_databases]]
 binding = "DB"
