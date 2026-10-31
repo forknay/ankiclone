@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+node_modules/
+.wrangler/
+.dev.vars
+*.p8
+DerivedData/
+xcuserdata/
+.DS_Store
