@@ -1,3 +1,5 @@
+import type { Limits } from "./config";
+
 export interface Entry {
   hanzi: string;
   pinyin: string;
@@ -9,7 +11,13 @@ export interface Character extends Entry {
 }
 
 export interface Sentence extends Entry {
+  /** Ignored: sentences are Chinese-first only. Still accepted so older payloads don't fail. */
   reverse?: boolean;
+}
+
+/** Characters that are easy to confuse, studied side by side without any context. */
+export interface LookalikeGroup {
+  members: Entry[];
 }
 
 export interface DailyInput {
@@ -19,6 +27,7 @@ export interface DailyInput {
   characters: Character[];
   words: Entry[];
   sentences: Sentence[];
+  lookalikes?: LookalikeGroup[];
 }
 
 const HAN = /\p{Script=Han}/gu;
@@ -52,8 +61,15 @@ export interface DailyRules {
   today: string;
   known: Set<string>;
   masterHanzi: Set<string>;
-  limits: { characters: number; sentences: number };
+  limits: Limits;
+  /** Existing look-alike groups, as their characters sorted, so a repeat is caught in any order. */
+  lookalikeKeys: Set<string>;
 }
+
+export const lookalikeKey = (hanzi: string) => [...hanzi].sort().join("");
+
+/** How a group is stored as one note. Members' English is joined with this. */
+export const LOOKALIKE_SEPARATOR = " · ";
 
 /** Returns every problem at once, so the routine can fix them all in one retry. */
 export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
@@ -71,6 +87,11 @@ export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
   }
   if (input.sentences.length > rules.limits.sentences) {
     errors.push(`${input.sentences.length} sentences exceeds today's limit of ${rules.limits.sentences}`);
+  }
+  if (input.lookalikes !== undefined && !Array.isArray(input.lookalikes)) errors.push("lookalikes must be an array");
+  const lookalikes = Array.isArray(input.lookalikes) ? input.lookalikes : [];
+  if (lookalikes.length > rules.limits.lookalikeGroups) {
+    errors.push(`${lookalikes.length} look-alike groups exceeds today's limit of ${rules.limits.lookalikeGroups}`);
   }
 
   const allowed = new Set(rules.known);
@@ -110,6 +131,31 @@ export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
     sentences.add(sentence.hanzi);
     const unknown = unknownIn(sentence.hanzi);
     if (unknown.length) errors.push(`${label}: "${sentence.hanzi}" uses unknown characters: ${unknown.join("")}`);
+  });
+
+  const groups = new Set(rules.lookalikeKeys);
+  lookalikes.forEach((group, index) => {
+    const label = `lookalikes[${index}]`;
+    if (!Array.isArray(group?.members) || group.members.length < 2 || group.members.length > 4) {
+      errors.push(`${label}: members must list 2 to 4 characters`);
+      return;
+    }
+    const characters: string[] = [];
+    group.members.forEach((member, memberIndex) => {
+      const memberLabel = `${label}.members[${memberIndex}]`;
+      if (!checkEntry(member, memberLabel, errors)) return;
+      if (hanOf(member.hanzi).length !== 1 || member.hanzi.length !== 1) {
+        errors.push(`${memberLabel}: "${member.hanzi}" must be a single character`);
+      } else if (!allowed.has(member.hanzi)) {
+        errors.push(`${memberLabel}: "${member.hanzi}" is not a known character`);
+      }
+      if (member.english.includes(LOOKALIKE_SEPARATOR.trim())) errors.push(`${memberLabel}: english must not contain "·"`);
+      characters.push(member.hanzi);
+    });
+    if (new Set(characters).size !== characters.length) errors.push(`${label}: a character appears twice`);
+    const key = lookalikeKey(characters.join(""));
+    if (groups.has(key)) errors.push(`${label}: "${characters.join("")}" was already used as a look-alike group`);
+    groups.add(key);
   });
 
   return errors;

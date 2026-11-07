@@ -16,6 +16,7 @@ private struct SyncResponse: Decodable {
     let due: Double
     let stability, difficulty, elapsedDays, scheduledDays: Double
     let reps, lapses: Int
+    let agains: Int?
     let lastReview: Double?
     let heldBy: String?
   }
@@ -165,12 +166,14 @@ final class SyncEngine {
           difficulty: item.difficulty, elapsedDays: item.elapsedDays, scheduledDays: item.scheduledDays,
           reps: item.reps, lapses: item.lapses, lastReview: lastReview)
         card.heldBy = item.heldBy
+        card.agains = item.agains ?? card.agains
       } else {
-        context.insert(
-          CardRecord(
-            id: item.id, noteID: item.noteId, deckID: item.deckId, directionRaw: item.direction, phaseRaw: item.phase,
-            due: date(item.due), stability: item.stability, difficulty: item.difficulty, elapsedDays: item.elapsedDays,
-            scheduledDays: item.scheduledDays, reps: item.reps, lapses: item.lapses, lastReview: lastReview, heldBy: item.heldBy))
+        let card = CardRecord(
+          id: item.id, noteID: item.noteId, deckID: item.deckId, directionRaw: item.direction, phaseRaw: item.phase,
+          due: date(item.due), stability: item.stability, difficulty: item.difficulty, elapsedDays: item.elapsedDays,
+          scheduledDays: item.scheduledDays, reps: item.reps, lapses: item.lapses, lastReview: lastReview, heldBy: item.heldBy)
+        card.agains = item.agains ?? 0
+        context.insert(card)
       }
     }
 

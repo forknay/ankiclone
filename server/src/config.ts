@@ -1,17 +1,34 @@
 export const TIME_ZONE = "America/Toronto";
 export const PUSH_HOUR = 9;
 
-/** How much new material is allowed per day, given how many cards are waiting. */
-const BACKLOG_TIERS = [
-  { upTo: 50, characters: 5, sentences: 15 },
-  { upTo: 150, characters: 3, sentences: 10 },
-  { upTo: 300, characters: 1, sentences: 5 },
-  { upTo: Infinity, characters: 0, sentences: 0 },
-];
+/** New characters per day, cut back only when reviews are piling up. */
+export const NEW_CHARACTERS = 5;
+export const NEW_CHARACTERS_UNDER_BACKLOG = 2;
+export const BACKLOG_BRAKE = 250;
 
-export function limitsFor(backlog: number): { characters: number; sentences: number } {
-  const { characters, sentences } = BACKLOG_TIERS.find((tier) => backlog <= tier.upTo)!;
-  return { characters, sentences };
+/** A reading deck of Chinese-first sentences each week, unlocked a few at a time. */
+export const READING_DECK_SIZE = 100;
+export const READING_EVERY_DAYS = 7;
+export const READING_NEW_PER_DAY = 15;
+
+/** Sets of look-alike characters, about twice a week. */
+export const LOOKALIKE_GROUPS = 8;
+export const LOOKALIKE_EVERY_DAYS = 3;
+
+export interface Limits {
+  characters: number;
+  /** Reading-deck sentences: either a full week's deck or none. */
+  sentences: number;
+  lookalikeGroups: number;
+}
+
+export function limitsFor(backlog: number, due: { reading: boolean; lookalikes: boolean }): Limits {
+  const braking = backlog > BACKLOG_BRAKE;
+  return {
+    characters: braking ? NEW_CHARACTERS_UNDER_BACKLOG : NEW_CHARACTERS,
+    sentences: due.reading && !braking ? READING_DECK_SIZE : 0,
+    lookalikeGroups: due.lookalikes ? LOOKALIKE_GROUPS : 0,
+  };
 }
 
 export function torontoParts(now: Date): { date: string; hour: number } {

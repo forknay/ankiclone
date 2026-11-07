@@ -78,11 +78,11 @@ describe("auth", () => {
 });
 
 describe("backlog limits", () => {
-  it("follows the tiers", () => {
-    expect(limitsFor(50)).toEqual({ characters: 5, sentences: 15 });
-    expect(limitsFor(51)).toEqual({ characters: 3, sentences: 10 });
-    expect(limitsFor(300)).toEqual({ characters: 1, sentences: 5 });
-    expect(limitsFor(331)).toEqual({ characters: 0, sentences: 0 });
+  it("keeps five new characters a day unless reviews pile up", () => {
+    const due = { reading: true, lookalikes: true };
+    expect(limitsFor(250, due)).toEqual({ characters: 5, sentences: 100, lookalikeGroups: 8 });
+    expect(limitsFor(251, due)).toEqual({ characters: 2, sentences: 0, lookalikeGroups: 8 });
+    expect(limitsFor(0, { reading: false, lookalikes: false })).toEqual({ characters: 5, sentences: 0, lookalikeGroups: 0 });
   });
 
   it("context hides held cards from the backlog", async () => {
@@ -95,13 +95,13 @@ describe("backlog limits", () => {
 });
 
 describe("POST /agent/daily", () => {
-  it("adds notes, cards, a sentence deck and a lesson", async () => {
+  it("adds notes, cards, a reading deck and a lesson", async () => {
     await seedKnown("我你好吗");
     const response = await agent("/agent/daily", goodDaily());
     expect(response.status).toBe(201);
     const pulled = await syncFrom();
     expect(pulled.lessons).toHaveLength(1);
-    expect(pulled.decks.map((deck: any) => deck.id)).toContain(`sentences-${today()}`);
+    expect(pulled.decks.map((deck: any) => deck.id)).toContain(`reading-${today()}`);
     const study = pulled.notes.find((note: any) => note.hanzi === "学");
     const studyCards = pulled.cards.filter((card: any) => card.noteId === study.id);
     expect(studyCards).toHaveLength(2);
@@ -109,8 +109,70 @@ describe("POST /agent/daily", () => {
     expect(dueOf("zh_en")).toBeLessThan(dueOf("en_zh"));
     const sentence = pulled.notes.find((note: any) => note.hanzi === "你好吗？");
     expect(pulled.cards.filter((card: any) => card.noteId === sentence.id)).toHaveLength(1);
+    // Sentences are Chinese-first only now, even if asked for reverse.
     const reversed = pulled.notes.find((note: any) => note.hanzi === "我学。");
-    expect(pulled.cards.filter((card: any) => card.noteId === reversed.id)).toHaveLength(2);
+    expect(pulled.cards.filter((card: any) => card.noteId === reversed.id)).toHaveLength(1);
+  });
+
+  it("unlocks the reading deck fifteen sentences a day, once a week", async () => {
+    await seedKnown("我你好吗是不");
+    const words = "我你好吗是不";
+    const sentences = Array.from({ length: 16 }, (_, index) => {
+      const pair = [words[index % 6], words[(index + 1 + Math.floor(index / 6)) % 6]];
+      return { hanzi: `${pair.join("")}${"。".repeat(1 + Math.floor(index / 6))}${index}`.replace(/\d+$/, ""), pinyin: "x x", english: `s${index}` };
+    });
+    // Make each sentence distinct with punctuation variety the validator accepts.
+    sentences.forEach((sentence, index) => (sentence.hanzi = `${sentence.hanzi.slice(0, 2)}${"！".repeat(index + 1)}`));
+    const response = await agent("/agent/daily", { ...goodDaily(), sentences });
+    expect(response.status).toBe(201);
+    const { results } = await env.DB.prepare(
+      "SELECT c.due FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.kind = 'sentence' ORDER BY c.due",
+    ).all<{ due: number }>();
+    expect(results[15].due - results[0].due).toBe(86_400_000);
+    expect(results[14].due).toBe(results[0].due);
+    const context = (await (await agent("/agent/context")).json()) as any;
+    expect(context.readingDeckDue).toBe(false);
+    expect(context.limits.sentences).toBe(0);
+  });
+
+  it("adds look-alike groups of known characters, never repeating one", async () => {
+    await seedKnown("码吗妈我你好");
+    const group = {
+      members: [
+        { hanzi: "码", pinyin: "mǎ", english: "code" },
+        { hanzi: "吗", pinyin: "ma", english: "question particle" },
+        { hanzi: "妈", pinyin: "mā", english: "mom" },
+      ],
+    };
+    const response = await agent("/agent/daily", { ...goodDaily(), sentences: [], lookalikes: [group] });
+    expect(response.status).toBe(201);
+    const note = (await env.DB.prepare("SELECT * FROM notes WHERE kind = 'lookalike'").first()) as any;
+    expect(note).toMatchObject({ deck_id: "lookalikes", hanzi: "码吗妈", pinyin: "mǎ ma mā", english: "code · question particle · mom" });
+    const context = (await (await agent("/agent/context")).json()) as any;
+    expect(context.lookalikeGroupsUsed).toEqual(["码吗妈"]);
+    expect(context.lookalikesDue).toBe(false);
+  });
+
+  it("rejects look-alike groups with unknown, repeated or too few characters", async () => {
+    await seedKnown("码吗妈我你好");
+    await env.DB.prepare(
+      "INSERT INTO decks (id, name, kind, reverse_mode, created_at, updated_seq) VALUES ('lookalikes', 'Look-alikes', 'lookalikes', 'recall', 1, 1)",
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO notes (id, deck_id, kind, hanzi, pinyin, english, lesson_date, updated_seq) VALUES ('g', 'lookalikes', 'lookalike', '妈吗', 'mā ma', 'mom · particle', '2020-01-01', 1)",
+    ).run();
+    const member = (hanzi: string) => ({ hanzi, pinyin: "mā", english: "x" });
+    const errors = await postDailyErrors({
+      ...goodDaily(),
+      lookalikes: [
+        { members: [member("码"), member("骂")] },
+        { members: [member("吗"), member("妈")] },
+        { members: [member("码")] },
+      ],
+    });
+    expect(errors).toContain('"骂" is not a known character');
+    expect(errors).toContain("already used as a look-alike group");
+    expect(errors).toContain("members must list 2 to 4 characters");
   });
 
   it("is idempotent per date", async () => {
@@ -180,6 +242,20 @@ describe("POST /sync", () => {
     expect(held.held_by).toBeNull();
     const { count } = (await env.DB.prepare("SELECT COUNT(*) AS count FROM review_logs").first()) as any;
     expect(count).toBe(1);
+  });
+
+  it("counts every Again on a card, once per review", async () => {
+    await seedKnown("我");
+    const now = Date.now();
+    const again = (id: string, at: number) => ({ ...reviewOf(id, "c1", at, at + 60_000), grade: "again" });
+    await syncFrom(0, { reviews: [again("a1", now - 2000), again("a2", now - 1000)] });
+    await syncFrom(0, { reviews: [again("a2", now - 1000)] });
+    const pulled = await syncFrom();
+    expect(pulled.cards.find((card: any) => card.id === "c1").agains).toBe(2);
+
+    const context = (await (await agent("/agent/context")).json()) as any;
+    expect(context.lastDay).toEqual({ reviews: 2, agains: 2 });
+    expect(context.struggling[0]).toMatchObject({ hanzi: "我", direction: "zh_en", againsLastDay: 2, againsLastWeek: 2 });
   });
 
   it("ignores an older review uploaded after a newer one", async () => {

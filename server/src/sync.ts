@@ -81,6 +81,17 @@ export async function sync(db: D1Database, input: SyncInput) {
           ),
         db.prepare("UPDATE cards SET held_by = NULL, updated_seq = ? WHERE held_by = ?").bind(seq, review.cardId),
       );
+      // Recounted rather than incremented, so uploading the same review twice can't count it twice.
+      if (review.grade === "again") {
+        statements.push(
+          db
+            .prepare(
+              `UPDATE cards SET agains = (SELECT COUNT(*) FROM review_logs WHERE card_id = ?1 AND grade = 'again'),
+                 updated_seq = ?2 WHERE id = ?1`,
+            )
+            .bind(review.cardId, seq),
+        );
+      }
     }
     for (const setting of input.deckSettings) {
       statements.push(
@@ -103,7 +114,7 @@ export async function sync(db: D1Database, input: SyncInput) {
     ),
     since(
       `SELECT id, note_id AS noteId, deck_id AS deckId, direction, phase, due, stability, difficulty,
-         elapsed_days AS elapsedDays, scheduled_days AS scheduledDays, reps, lapses,
+         elapsed_days AS elapsedDays, scheduled_days AS scheduledDays, reps, lapses, agains,
          last_review AS lastReview, held_by AS heldBy
        FROM cards WHERE updated_seq > ? AND updated_seq <= ?`,
     ),

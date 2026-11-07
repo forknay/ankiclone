@@ -57,8 +57,11 @@ extension CardScheduler {
 }
 
 public struct FSRSScheduler: CardScheduler {
-  /// Every card comes back at least twice a year, however easy it felt.
-  public static let maximumIntervalDays = 183.0
+  /// Every card comes back at least once a month, however easy it felt.
+  public static let maximumIntervalDays = 30.0
+
+  /// The most an interval may grow in one review, relative to the previous interval. Long intervals take several confirmations instead of one lucky Easy.
+  static let maximumGrowth: [Grade: Double] = [.hard: 1.5, .good: 2.5, .easy: 3.5]
 
   private let algorithm: FSRSAlgorithm
   private let calendar: Calendar
@@ -82,8 +85,10 @@ public struct FSRSScheduler: CardScheduler {
     guard result.scheduledDays > 0 else { return result }
 
     // Day-long intervals land on a study-day boundary, so "due today" doesn't drift through the day.
+    // Growth is measured from the planned interval, so a late review can't skip confirmations.
     let days = min(
       Fuzz.apply(to: result.scheduledDays, cardID: cardID, reps: state.reps),
+      max(1, state.scheduledDays) * (Self.maximumGrowth[grade] ?? 1),
       Self.maximumIntervalDays
     )
     result.scheduledDays = days

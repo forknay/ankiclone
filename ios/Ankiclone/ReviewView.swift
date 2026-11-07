@@ -10,15 +10,11 @@ struct ReviewView: View {
   @Environment(SyncEngine.self) private var sync
   @State private var current: CardRecord?
   @State private var note: NoteRecord?
-  @State private var mode: ReverseMode = .recall
   @State private var revealed = false
-  @State private var typed = ""
-  @State private var checks: [SyllableCheck] = []
   @State private var remaining = QueueCounts()
   @State private var previews: [Grade: SchedulingState] = [:]
   @State private var loaded = false
   @State private var sinceLastSync = 0
-  @FocusState private var typing: Bool
 
   private let scheduler = FSRSScheduler()
 
@@ -41,8 +37,7 @@ struct ReviewView: View {
           .padding(.horizontal, 20)
           .padding(.top, 40)
         }
-        .scrollDismissesKeyboard(.interactively)
-        controls(current, note)
+        controls(current)
       } else if loaded {
         Spacer()
         Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundStyle(.green)
@@ -56,48 +51,57 @@ struct ReviewView: View {
     .task { advance() }
   }
 
+  private func hanziSize(_ note: NoteRecord) -> CGFloat {
+    switch note.kind {
+    case "sentence": 34
+    case "lookalike": 60
+    default: 72
+    }
+  }
+
   @ViewBuilder
   private func prompt(_ card: CardRecord, _ note: NoteRecord) -> some View {
     switch card.direction {
     case .zhToEn:
-      Text(note.hanzi)
-        .font(.hanzi(note.kind == "sentence" ? 34 : 72))
+      Text(note.kind == "lookalike" ? note.hanzi.map(String.init).joined(separator: "  ") : note.hanzi)
+        .font(.hanzi(hanziSize(note)))
         .multilineTextAlignment(.center)
         .textSelection(.enabled)
     case .enToZh:
+      // The sound is given; the work is picturing the character. The meaning tells homophones apart.
+      Text(note.pinyin).font(.largeTitle.weight(.semibold)).multilineTextAlignment(.center)
       Text(CardPrompt.english(note.english, hanzi: note.hanzi, pinyin: note.pinyin))
-        .font(.title2)
+        .font(.title3)
+        .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      if mode == .type && !revealed {
-        TextField("Type the pinyin, e.g. ni3 hao3", text: $typed)
-          .textFieldStyle(.roundedBorder)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .focused($typing)
-          .submitLabel(.done)
-          .onSubmit { reveal(note) }
-      }
     }
   }
 
   @ViewBuilder
   private func answer(_ card: CardRecord, _ note: NoteRecord) -> some View {
     Divider()
-    if card.direction == .enToZh {
-      Text(note.hanzi).font(.hanzi(note.kind == "sentence" ? 34 : 72)).multilineTextAlignment(.center)
-    }
-    if checks.isEmpty {
-      Text(note.pinyin).font(.title3).multilineTextAlignment(.center)
+    if note.kind == "lookalike" {
+      VStack(alignment: .leading, spacing: 14) {
+        ForEach(LookalikeMember.members(of: note), id: \.self) { member in
+          HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(member.hanzi).font(.hanzi(40))
+            VStack(alignment: .leading, spacing: 2) {
+              Text(member.pinyin).font(.title3)
+              Text(member.english).foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
+    } else if card.direction == .enToZh {
+      Text(note.hanzi).font(.hanzi(hanziSize(note))).multilineTextAlignment(.center)
     } else {
-      PinyinResultView(checks: checks, typed: typed)
-    }
-    if card.direction == .zhToEn {
+      Text(note.pinyin).font(.title3).multilineTextAlignment(.center)
       Text(note.english).font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
     }
   }
 
   @ViewBuilder
-  private func controls(_ card: CardRecord, _ note: NoteRecord) -> some View {
+  private func controls(_ card: CardRecord) -> some View {
     Group {
       if revealed {
         HStack(spacing: 8) {
@@ -117,11 +121,9 @@ struct ReviewView: View {
         }
       } else {
         Button {
-          reveal(note)
+          reveal()
         } label: {
-          Text(card.direction == .enToZh && mode == .type ? "Check" : "Show answer")
-            .font(.headline)
-            .frame(maxWidth: .infinity, minHeight: 48)
+          Text("Show answer").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
         }
         .buttonStyle(.borderedProminent)
       }
@@ -129,20 +131,18 @@ struct ReviewView: View {
     .padding()
   }
 
-  private func reveal(_ note: NoteRecord) {
+  private func reveal() {
     guard let current else { return }
-    if current.direction == .enToZh && mode == .type {
-      checks = PinyinCheck.check(typed: typed, answer: note.pinyin)
-    }
-    typing = false
     previews = scheduler.previews(current.schedulingState, at: Date(), cardID: current.id)
     revealed = true
+    Stats.recordReveal()
   }
 
   private func answer(_ grade: Grade, _ card: CardRecord) {
     let now = Date()
     let state = scheduler.next(card.schedulingState, grade: grade, at: now, cardID: card.id)
     card.schedulingState = state
+    if grade == .again { card.agains += 1 }
     let cardID = card.id
     let held = (try? context.fetch(FetchDescriptor<CardRecord>(predicate: #Predicate { $0.heldBy == cardID }))) ?? []
     held.forEach { $0.heldBy = nil }
@@ -150,7 +150,7 @@ struct ReviewView: View {
       context.insert(
         PendingReview(
           id: UUID().uuidString, cardID: card.id, grade: grade.rawValue, reviewedAt: now,
-          typedAnswer: typed.isEmpty ? nil : typed, stateData: data))
+          typedAnswer: nil, stateData: data))
     }
     try? context.save()
 
@@ -175,8 +175,6 @@ struct ReviewView: View {
     let queue = cards.map(\.queueCard)
     remaining = StudyQueue.counts(queue, now: now)
     revealed = false
-    typed = ""
-    checks = []
     previews = [:]
     loaded = true
 
@@ -186,51 +184,8 @@ struct ReviewView: View {
       return
     }
     let noteID = card.noteID
-    let deckID = card.deckID
     note = try? context.fetch(FetchDescriptor<NoteRecord>(predicate: #Predicate { $0.id == noteID })).first
-    mode = (try? context.fetch(FetchDescriptor<DeckRecord>(predicate: #Predicate { $0.id == deckID })).first)?.reverseMode ?? .recall
     current = card
-    typing = card.direction == .enToZh && mode == .type
-  }
-}
-
-private struct PinyinResultView: View {
-  let checks: [SyllableCheck]
-  let typed: String
-
-  var body: some View {
-    VStack(spacing: 8) {
-      HStack(spacing: 6) {
-        ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
-          Text(check.expected).font(.title3.weight(.semibold)).foregroundStyle(check.result.color)
-        }
-      }
-      if !summary.isEmpty {
-        Text(summary).font(.footnote).foregroundStyle(.secondary)
-      }
-      Text("You typed: \(typed.isEmpty ? "nothing" : typed)").font(.footnote).foregroundStyle(.secondary)
-    }
-  }
-
-  private var summary: String {
-    let results = checks.map(\.result)
-    if results.allSatisfy({ $0 == .correct }) { return "All correct" }
-    var parts: [String] = []
-    if results.contains(.wrong) { parts.append("red: wrong syllable") }
-    if results.contains(.wrongTone) { parts.append("orange: wrong tone") }
-    if results.contains(.missingTone) { parts.append("yellow: no tone given") }
-    return parts.joined(separator: " · ")
-  }
-}
-
-extension SyllableResult {
-  fileprivate var color: Color {
-    switch self {
-    case .correct: .green
-    case .wrongTone: .orange
-    case .missingTone: .yellow
-    case .wrong: .red
-    }
   }
 }
 

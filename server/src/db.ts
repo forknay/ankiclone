@@ -1,4 +1,4 @@
-import { limitsFor } from "./config";
+import { limitsFor, LOOKALIKE_EVERY_DAYS, READING_EVERY_DAYS } from "./config";
 
 export async function nextSeq(db: D1Database): Promise<number> {
   const row = await db
@@ -40,10 +40,29 @@ export function backlogOf(counts: DeckCounts[]): number {
   return counts.reduce((sum, deck) => sum + deck.overdue + deck.learning + deck.fresh, 0);
 }
 
+const DAY_MS = 86_400_000;
+
+/** Whether this week's reading deck and the next look-alike set are due. */
+export async function materialDue(db: D1Database, now: number) {
+  const reading = await db
+    .prepare("SELECT MAX(created_at) AS last FROM decks WHERE kind = 'reading'")
+    .first<{ last: number | null }>();
+  const lookalikes = await db
+    .prepare("SELECT MAX(lesson_date) AS last FROM notes WHERE kind = 'lookalike'")
+    .first<{ last: string | null }>();
+  // A little slack, so a routine that runs a few minutes earlier than last week still counts.
+  const olderThan = (ms: number | null, days: number) => ms === null || now - ms >= days * DAY_MS - 6 * 3_600_000;
+  return {
+    reading: olderThan(reading?.last ?? null, READING_EVERY_DAYS),
+    lookalikes: olderThan(lookalikes?.last ? Date.parse(`${lookalikes.last}T12:00:00Z`) : null, LOOKALIKE_EVERY_DAYS),
+  };
+}
+
 export async function todaysLimits(db: D1Database, now: number) {
   const counts = await deckCounts(db, now);
   const backlog = backlogOf(counts);
-  return { counts, backlog, limits: limitsFor(backlog) };
+  const due = await materialDue(db, now);
+  return { counts, backlog, due, limits: limitsFor(backlog, due) };
 }
 
 export async function knownCharacters(db: D1Database): Promise<string[]> {

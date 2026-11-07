@@ -25,7 +25,8 @@ final class SchedulerTests: XCTestCase {
     XCTAssertEqual(previews[.hard]!.due.timeIntervalSince(start), 300)
     XCTAssertEqual(previews[.good]!.due.timeIntervalSince(start), 600)
     XCTAssertEqual(previews[.easy]!.phase, .review)
-    XCTAssertGreaterThanOrEqual(days(previews[.easy]!, from: start), 7)
+    // One Easy on a brand-new card is not enough to trust it for long.
+    XCTAssertEqual(previews[.easy]!.scheduledDays, 3.5)
   }
 
   func testSecondEasyPushesFurtherThanFirst() {
@@ -36,14 +37,33 @@ final class SchedulerTests: XCTestCase {
     XCTAssertGreaterThan(third.scheduledDays, second.scheduledDays)
   }
 
-  func testIntervalsNeverExceedTheCap() {
+  func testIntervalGrowsAtMostByTheGradeLimitPerReview() {
     var state = SchedulingState(due: start)
-    for _ in 0..<10 {
-      state = scheduler.next(state, grade: .easy, at: state.due, cardID: "a")
-      XCTAssertLessThanOrEqual(state.scheduledDays, FSRSScheduler.maximumIntervalDays)
+    var previous = 1.0
+    for _ in 0..<8 {
+      state = scheduler.next(state, grade: .good, at: state.due, cardID: "a")
+      if state.scheduledDays > 0 {
+        XCTAssertLessThanOrEqual(state.scheduledDays, previous * 2.5 + 0.001)
+        previous = state.scheduledDays
+      }
     }
-    // Fuzz can land a capped card a few days short, but it stays close to the cap.
-    XCTAssertGreaterThanOrEqual(state.scheduledDays, FSRSScheduler.maximumIntervalDays * 0.95)
+  }
+
+  func testReachingTheCapTakesSeveralGoodReviews() {
+    var state = scheduler.next(SchedulingState(due: start), grade: .good, at: start, cardID: "a")
+    var reviews = 1
+    while state.scheduledDays < FSRSScheduler.maximumIntervalDays * 0.95 && reviews < 20 {
+      state = scheduler.next(state, grade: .good, at: state.due, cardID: "a")
+      reviews += 1
+    }
+    XCTAssertGreaterThanOrEqual(reviews, 5)
+  }
+
+  func testALateReviewStillGrowsOnlyFromThePlannedInterval() {
+    let first = scheduler.next(SchedulingState(due: start), grade: .easy, at: start, cardID: "a")
+    let late = first.due.addingTimeInterval(86_400 * 20)
+    let next = scheduler.next(first, grade: .good, at: late, cardID: "a")
+    XCTAssertLessThanOrEqual(next.scheduledDays, first.scheduledDays * 2.5)
   }
 
   func testReviewGradesAreOrdered() {

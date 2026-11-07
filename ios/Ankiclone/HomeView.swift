@@ -15,6 +15,10 @@ struct HomeView: View {
   @State private var now = Date()
   @State private var showingSettings = false
   @State private var studyingAll = false
+  @State private var activeSince: Date?
+  @AppStorage(Stats.revealsKey) private var reveals = 0
+  @AppStorage(Stats.secondsKey) private var secondsInApp = 0.0
+  @Query(filter: #Predicate<NoteRecord> { $0.deckID == "master" }) private var masterNotes: [NoteRecord]
 
   private var countsByDeck: [String: QueueCounts] {
     let queue = cards.map { ($0.deckID, $0.queueCard) }
@@ -49,6 +53,20 @@ struct HomeView: View {
               .font(.headline)
           }
           .disabled(total == 0)
+        }
+
+        Section("Progress") {
+          NavigationLink {
+            CharactersView()
+          } label: {
+            LabeledContent("Characters", value: "\(masterNotes.count)")
+          }
+          LabeledContent("Cards reviewed", value: reveals.formatted())
+          TimelineView(.everyMinute) { context in
+            // The timeline's date is rounded down to the minute, so it can fall before activeSince.
+            let current = activeSince.map { max(0, context.date.timeIntervalSince($0)) } ?? 0
+            LabeledContent("Time in app", value: Stats.formatTime(secondsInApp + current))
+          }
         }
 
         Section("Decks") {
@@ -110,6 +128,15 @@ struct HomeView: View {
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { Task { await refresh() } }
     }
+    // Counts only time with the app on screen.
+    .onChange(of: scenePhase, initial: true) { _, phase in
+      if phase == .active {
+        activeSince = activeSince ?? Date()
+      } else if let start = activeSince {
+        Stats.addTime(Date().timeIntervalSince(start))
+        activeSince = nil
+      }
+    }
   }
 
   private var emptyMessage: String {
@@ -123,6 +150,7 @@ struct HomeView: View {
   private func refresh() async {
     await sync.sync(context)
     now = Date()
+    Stats.backfillReveals(from: cards)
     guard AppSettings.isConfigured else { return }
     let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
     if granted { UIApplication.shared.registerForRemoteNotifications() }
@@ -173,25 +201,6 @@ struct DeckView: View {
       Section {
         Button("Study \(counts.total) cards") { studying = true }.disabled(counts.total == 0)
       }
-      Section {
-        Picker(
-          "Answer mode",
-          selection: Binding(
-            get: { deck.reverseMode },
-            set: { mode in
-              deck.reverseModeRaw = mode.rawValue
-              deck.reverseModeDirty = true
-              try? context.save()
-              Task { await sync.sync(context) }
-            })
-        ) {
-          ForEach(ReverseMode.allCases) { Text($0.label).tag($0) }
-        }
-      } header: {
-        Text("English-first cards")
-      } footer: {
-        Text("Try both and keep whichever works for this deck.")
-      }
     }
     .navigationTitle(deck.name)
     .fullScreenCover(isPresented: $studying, onDismiss: { Task { await sync.sync(context) } }) {
@@ -229,7 +238,12 @@ struct LessonView: View {
           }
         }
         if content.sentenceCount > 0 {
-          Section { Text("\(content.sentenceCount) practice sentences are waiting in today's deck.") }
+          Section { Text("This week's reading deck has \(content.sentenceCount) sentences, unlocking a few each day.") }
+        }
+        if let groups = content.lookalikes, !groups.isEmpty {
+          Section("New look-alike sets") {
+            Text(groups.joined(separator: "   ")).font(.hanzi(24))
+          }
         }
       } else {
         Text("This lesson couldn't be displayed.")
@@ -240,7 +254,7 @@ struct LessonView: View {
   }
 }
 
-private struct EntryRow: View {
+struct EntryRow: View {
   let entry: LessonEntry
 
   var body: some View {

@@ -64,6 +64,8 @@ final class CardRecord {
   var lapses: Int
   var lastReview: Date?
   var heldBy: String?
+  /// Every time Again was pressed on this card, including during learning steps.
+  var agains = 0
 
   init(
     id: String, noteID: String, deckID: String, directionRaw: String, phaseRaw: String, due: Date,
@@ -165,4 +167,23 @@ struct LessonBody: Codable {
   var characters: [LessonCharacter]
   var words: [LessonEntry]
   var sentenceCount: Int
+  var lookalikes: [String]?
+}
+
+/// One character of a look-alike group, which is stored as a single note.
+struct LookalikeMember: Hashable {
+  var hanzi: String
+  var pinyin: String
+  var english: String
+
+  static func members(of note: NoteRecord) -> [LookalikeMember] {
+    let pinyin = note.pinyin.split(separator: " ").map(String.init)
+    let english = note.english.components(separatedBy: " · ")
+    return note.hanzi.enumerated().map { index, character in
+      LookalikeMember(
+        hanzi: String(character),
+        pinyin: index < pinyin.count ? pinyin[index] : "",
+        english: index < english.count ? english[index] : "")
+    }
+  }
 }
