@@ -29,13 +29,7 @@ struct ReviewView: View {
 
       if let current, let note {
         ScrollView {
-          VStack(spacing: 20) {
-            prompt(current, note)
-            if revealed { answer(current, note) }
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.horizontal, 20)
-          .padding(.top, 40)
+          CardFace(direction: current.direction, note: note, revealed: revealed)
         }
         controls(current)
       } else if loaded {
@@ -49,55 +43,6 @@ struct ReviewView: View {
       }
     }
     .task { advance() }
-  }
-
-  private func hanziSize(_ note: NoteRecord) -> CGFloat {
-    switch note.kind {
-    case "sentence": 34
-    case "lookalike": 60
-    default: 72
-    }
-  }
-
-  @ViewBuilder
-  private func prompt(_ card: CardRecord, _ note: NoteRecord) -> some View {
-    switch card.direction {
-    case .zhToEn:
-      Text(note.kind == "lookalike" ? note.hanzi.map(String.init).joined(separator: "  ") : note.hanzi)
-        .font(.hanzi(hanziSize(note)))
-        .multilineTextAlignment(.center)
-        .textSelection(.enabled)
-    case .enToZh:
-      // The sound is given; the work is picturing the character. The meaning tells homophones apart.
-      Text(note.pinyin).font(.largeTitle.weight(.semibold)).multilineTextAlignment(.center)
-      Text(CardPrompt.english(note.english, hanzi: note.hanzi, pinyin: note.pinyin))
-        .font(.title3)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-    }
-  }
-
-  @ViewBuilder
-  private func answer(_ card: CardRecord, _ note: NoteRecord) -> some View {
-    Divider()
-    if note.kind == "lookalike" {
-      VStack(alignment: .leading, spacing: 14) {
-        ForEach(LookalikeMember.members(of: note), id: \.self) { member in
-          HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(member.hanzi).font(.hanzi(40))
-            VStack(alignment: .leading, spacing: 2) {
-              Text(member.pinyin).font(.title3)
-              Text(member.english).foregroundStyle(.secondary)
-            }
-          }
-        }
-      }
-    } else if card.direction == .enToZh {
-      Text(note.hanzi).font(.hanzi(hanziSize(note))).multilineTextAlignment(.center)
-    } else {
-      Text(note.pinyin).font(.title3).multilineTextAlignment(.center)
-      Text(note.english).font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
-    }
   }
 
   @ViewBuilder
@@ -186,6 +131,72 @@ struct ReviewView: View {
     let noteID = card.noteID
     note = try? context.fetch(FetchDescriptor<NoteRecord>(predicate: #Predicate { $0.id == noteID })).first
     current = card
+  }
+}
+
+/// One card's prompt and, once revealed, its answer. Shared by reviews and endless practice.
+struct CardFace: View {
+  let direction: Direction
+  let note: NoteRecord
+  let revealed: Bool
+
+  var body: some View {
+    VStack(spacing: 20) {
+      prompt
+      if revealed { answer }
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.horizontal, 20)
+    .padding(.top, 40)
+  }
+
+  private var hanziSize: CGFloat {
+    switch note.kind {
+    case "sentence": 34
+    case "lookalike": 60
+    default: 72
+    }
+  }
+
+  @ViewBuilder
+  private var prompt: some View {
+    switch direction {
+    case .zhToEn:
+      Text(note.kind == "lookalike" ? note.hanzi.map(String.init).joined(separator: "  ") : note.hanzi)
+        .font(.hanzi(hanziSize))
+        .multilineTextAlignment(.center)
+        .textSelection(.enabled)
+    case .enToZh:
+      // The sound is given; the work is picturing the character. The meaning tells homophones apart.
+      Text(note.pinyin).font(.largeTitle.weight(.semibold)).multilineTextAlignment(.center)
+      Text(CardPrompt.english(note.english, hanzi: note.hanzi, pinyin: note.pinyin))
+        .font(.title3)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+    }
+  }
+
+  @ViewBuilder
+  private var answer: some View {
+    Divider()
+    if note.kind == "lookalike" {
+      VStack(alignment: .leading, spacing: 14) {
+        ForEach(LookalikeMember.members(of: note), id: \.self) { member in
+          HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(member.hanzi).font(.hanzi(40))
+            VStack(alignment: .leading, spacing: 2) {
+              Text(member.pinyin).font(.title3)
+              Text(member.english).foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
+    } else if direction == .enToZh {
+      Text(note.hanzi).font(.hanzi(hanziSize)).multilineTextAlignment(.center)
+    } else {
+      Text(note.pinyin).font(.title3).multilineTextAlignment(.center)
+      Text(note.english).font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
+    }
   }
 }
 

@@ -15,6 +15,7 @@ struct HomeView: View {
   @State private var now = Date()
   @State private var showingSettings = false
   @State private var studyingAll = false
+  @State private var practising = false
   @State private var activeSince: Date?
   @AppStorage(Stats.revealsKey) private var reveals = 0
   @AppStorage(Stats.secondsKey) private var secondsInApp = 0.0
@@ -53,6 +54,13 @@ struct HomeView: View {
               .font(.headline)
           }
           .disabled(total == 0)
+          Button {
+            practising = true
+          } label: {
+            Label("Endless reading practice", systemImage: "infinity")
+          }
+        } footer: {
+          Text("Endless practice shuffles every reading card you've seen. It doesn't change your schedule.")
         }
 
         Section("Progress") {
@@ -120,6 +128,7 @@ struct HomeView: View {
       .fullScreenCover(isPresented: $studyingAll, onDismiss: { Task { await refresh() } }) {
         ReviewView(deckID: nil)
       }
+      .fullScreenCover(isPresented: $practising) { PracticeView() }
     }
     .task {
       if !AppSettings.isConfigured { showingSettings = true }
