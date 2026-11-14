@@ -1,13 +1,24 @@
 import SwiftData
 import SwiftUI
 
-/// Every character and word in the master deck, as a grid to browse or search.
+/// Every character in the master deck as a grid, and every word as a list, to browse or search.
 struct CharactersView: View {
-  @Query(filter: #Predicate<NoteRecord> { $0.deckID == "master" }) private var notes: [NoteRecord]
+  enum Tab: String, CaseIterable {
+    case characters = "Characters"
+    case words = "Words"
+  }
+
+  @Query(filter: #Predicate<NoteRecord> { $0.deckID == "master" }) private var masterNotes: [NoteRecord]
   @Query(filter: #Predicate<CardRecord> { $0.deckID == "master" && $0.directionRaw == "zh_en" }) private var cards: [CardRecord]
   @State private var search = ""
+  @State private var tab = Tab.characters
+
+  private var notes: [NoteRecord] {
+    masterNotes.filter { ($0.kind == "character") == (tab == .characters) }
+  }
 
   private var shown: [NoteRecord] {
+    let notes = notes
     let query = search.trimmingCharacters(in: .whitespaces)
     let matching = query.isEmpty
       ? notes
@@ -22,6 +33,33 @@ struct CharactersView: View {
   var body: some View {
     let unreviewed = Set(cards.filter { $0.reps == 0 }.map(\.noteID))
     ScrollView {
+      Picker("Show", selection: $tab) {
+        ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+      }
+      .pickerStyle(.segmented)
+      .padding([.horizontal, .top])
+
+      if tab == .words {
+        LazyVStack(spacing: 0) {
+          ForEach(shown) { note in
+            NavigationLink {
+              CharacterDetailView(note: note)
+            } label: {
+              HStack {
+                EntryRow(entry: LessonEntry(hanzi: note.hanzi, pinyin: note.pinyin, english: note.english))
+                Spacer()
+                if unreviewed.contains(note.id) { Circle().fill(.blue).frame(width: 7, height: 7).accessibilityLabel("new") }
+                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
+              }
+              .padding(.vertical, 6)
+              .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            Divider()
+          }
+        }
+        .padding(.horizontal)
+      } else {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 10)], spacing: 10) {
         ForEach(shown) { note in
           NavigationLink {
@@ -43,12 +81,13 @@ struct CharactersView: View {
         }
       }
       .padding()
+      }
       if shown.isEmpty {
-        Text(notes.isEmpty ? "No characters yet." : "No matches.").foregroundStyle(.secondary).padding()
+        Text(notes.isEmpty ? "No \(tab.rawValue.lowercased()) yet." : "No matches.").foregroundStyle(.secondary).padding()
       }
     }
-    .searchable(text: $search, prompt: "Character, pinyin or English")
-    .navigationTitle("Characters (\(notes.count))")
+    .searchable(text: $search, prompt: "Chinese, pinyin or English")
+    .navigationTitle("\(tab.rawValue) (\(notes.count))")
   }
 }
 

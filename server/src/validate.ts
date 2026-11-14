@@ -62,6 +62,8 @@ export interface DailyRules {
   known: Set<string>;
   masterHanzi: Set<string>;
   limits: Limits;
+  /** Each master character's reading, which look-alike members must use. */
+  readings: Map<string, string>;
   /** Existing look-alike groups, as their characters sorted, so a repeat is caught in any order. */
   lookalikeKeys: Set<string>;
 }
@@ -95,6 +97,7 @@ export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
   }
 
   const allowed = new Set(rules.known);
+  const readings = new Map(rules.readings);
   const seen = new Set(rules.masterHanzi);
   input.characters.forEach((character, index) => {
     const label = `characters[${index}]`;
@@ -105,6 +108,7 @@ export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
     if (seen.has(character.hanzi)) errors.push(`${label}: "${character.hanzi}" is already in the master deck`);
     seen.add(character.hanzi);
     allowed.add(character.hanzi);
+    readings.set(character.hanzi, character.pinyin.trim());
     if (!Array.isArray(character.uses) || character.uses.length === 0) {
       errors.push(`${label}: at least one common use is required`);
     } else {
@@ -148,6 +152,9 @@ export function validateDaily(input: DailyInput, rules: DailyRules): string[] {
         errors.push(`${memberLabel}: "${member.hanzi}" must be a single character`);
       } else if (!allowed.has(member.hanzi)) {
         errors.push(`${memberLabel}: "${member.hanzi}" is not a known character`);
+      } else if (readings.has(member.hanzi) && member.pinyin.trim() !== readings.get(member.hanzi)) {
+        // Polyphones: the card must teach the reading the learner studies, e.g. 咳 ké, not hāi.
+        errors.push(`${memberLabel}: "${member.hanzi}" is read ${readings.get(member.hanzi)} on its card, not ${member.pinyin.trim()}`);
       }
       if (member.english.includes(LOOKALIKE_SEPARATOR.trim())) errors.push(`${memberLabel}: english must not contain "·"`);
       characters.push(member.hanzi);

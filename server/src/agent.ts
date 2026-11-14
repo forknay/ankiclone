@@ -67,13 +67,16 @@ export async function postDaily(db: D1Database, input: DailyInput, nowMs: number
   if (existing) return { status: 200, body: { ok: true, alreadyPosted: true } };
 
   const { limits } = await todaysLimits(db, nowMs);
-  const master = await db.prepare("SELECT hanzi FROM notes WHERE deck_id = 'master'").all<{ hanzi: string }>();
+  const master = await db
+    .prepare("SELECT hanzi, pinyin, kind FROM notes WHERE deck_id = 'master'")
+    .all<{ hanzi: string; pinyin: string; kind: string }>();
   const groups = await db.prepare("SELECT hanzi FROM notes WHERE kind = 'lookalike'").all<{ hanzi: string }>();
   const errors = validateDaily(input, {
     today,
     known: new Set(await knownCharacters(db)),
     masterHanzi: new Set(master.results.map((row) => row.hanzi)),
     limits,
+    readings: new Map(master.results.filter((row) => row.kind === "character").map((row) => [row.hanzi, row.pinyin])),
     lookalikeKeys: new Set(groups.results.map((row) => lookalikeKey(row.hanzi))),
   });
   if (errors.length) return { status: 422, body: { ok: false, errors } };

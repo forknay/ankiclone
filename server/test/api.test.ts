@@ -137,6 +137,9 @@ describe("POST /agent/daily", () => {
 
   it("adds look-alike groups of known characters, never repeating one", async () => {
     await seedKnown("码吗妈我你好");
+    for (const [hanzi, pinyin] of [["码", "mǎ"], ["吗", "ma"], ["妈", "mā"]]) {
+      await env.DB.prepare("UPDATE notes SET pinyin = ? WHERE hanzi = ?").bind(pinyin, hanzi).run();
+    }
     const group = {
       members: [
         { hanzi: "码", pinyin: "mǎ", english: "code" },
@@ -173,6 +176,17 @@ describe("POST /agent/daily", () => {
     expect(errors).toContain('"骂" is not a known character');
     expect(errors).toContain("already used as a look-alike group");
     expect(errors).toContain("members must list 2 to 4 characters");
+  });
+
+  it("rejects a look-alike reading that differs from the character's card", async () => {
+    await seedKnown("咳喝我你好");
+    await env.DB.prepare("UPDATE notes SET pinyin = 'ké' WHERE hanzi = '咳'").run();
+    await env.DB.prepare("UPDATE notes SET pinyin = 'hē' WHERE hanzi = '喝'").run();
+    const errors = await postDailyErrors({
+      ...goodDaily(),
+      lookalikes: [{ members: [{ hanzi: "咳", pinyin: "hāi", english: "to cough" }, { hanzi: "喝", pinyin: "hē", english: "to drink" }] }],
+    });
+    expect(errors).toContain('"咳" is read ké on its card, not hāi');
   });
 
   it("is idempotent per date", async () => {

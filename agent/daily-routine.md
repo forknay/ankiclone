@@ -81,6 +81,9 @@ sight. Examples: 建健键, 练炼, 码吗妈, 请情清晴, 未末, 己已. Goo
 Build most groups around **struggling** characters, then fill up with other well-known confusable
 sets. Never repeat a group from `lookalikeGroupsUsed`, in any order. Give each member its own pinyin
 and a short English meaning without the "·" character. All members must be in `knownCharacters`.
+Each member's pinyin must be the reading the learner studies on that character's card, never a rarer
+reading of a polyphone (咳 is ké "to cough", not hāi). The server checks this, and a 422 names the
+expected reading.
 
 When `lookalikesDue` is false, leave out `lookalikes` or send `[]`.
 

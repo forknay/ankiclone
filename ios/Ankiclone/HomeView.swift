@@ -19,7 +19,7 @@ struct HomeView: View {
   @State private var activeSince: Date?
   @AppStorage(Stats.revealsKey) private var reveals = 0
   @AppStorage(Stats.secondsKey) private var secondsInApp = 0.0
-  @Query(filter: #Predicate<NoteRecord> { $0.deckID == "master" }) private var masterNotes: [NoteRecord]
+  @Query(filter: #Predicate<NoteRecord> { $0.deckID == "master" && $0.kind == "character" }) private var masterNotes: [NoteRecord]
 
   private var countsByDeck: [String: QueueCounts] {
     let queue = cards.map { ($0.deckID, $0.queueCard) }
