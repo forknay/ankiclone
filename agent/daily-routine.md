@@ -34,7 +34,26 @@ character (the skill that matters most) or `en_zh` for picturing it from pinyin 
   encouragement.
 - Don't call a character difficult unless the numbers say so. Never guess from how hard it looks.
 
-## 2. Choose today's new characters (`limits.characters`, normally 5)
+## 2. Choose today's new characters (exactly `limits.characters`)
+
+The amount follows the backlog, which is every card due when this routine runs, before the day's
+reviews (`backlog` in the context). The learner gets through about 400 reviews a day, so up to 300 due
+in the morning is a normal day:
+
+| Cards due this morning | New characters | Weekly reading deck |
+|---|---|---|
+| Up to 300 | 5 | yes, when due |
+| 301–375 | 4 | yes, when due |
+| 376–450 | 3 | yes, when due |
+| 451–525 | 2 | waits |
+| 526–600 | 1 | waits |
+| Over 600 | 0 | waits |
+
+The server works this out and sends it as `limits`. Always give exactly `limits.characters` new
+characters, never fewer: don't cut back further for difficulty. Struggling characters are handled
+through words, sentences and look-alike sets instead. When `limits.characters` is 0, send
+`"characters": []`, add words only from known characters, and make the title and intro a short
+encouraging review day ("Review day: catching up").
 
 Pick characters not in `knownCharacters`. Choose them so they **complement** what is being learned,
 in this order of preference:
@@ -53,7 +72,7 @@ only recognisable inside one context.
 Also add a few useful **words** built only from known characters plus today's new ones, especially
 words containing struggling characters. Check `recentlyLearned` to avoid repeats.
 
-## 3. Weekly reading deck (only when `readingDeckDue` is true)
+## 3. Weekly reading deck (only when `readingDeckDue` is true and `limits.sentences` is above 0)
 
 Write exactly `limits.sentences` (100) natural, spoken-style sentences for reading practice. The app
 unlocks them 15 a day.
@@ -67,7 +86,8 @@ unlocks them 15 a day.
 - Mix topics, and avoid near-duplicate sentences.
 - Don't set `reverse`: sentences are Chinese-first only.
 
-When `readingDeckDue` is false, send `"sentences": []`.
+Otherwise send `"sentences": []`. A deck that waits because of the backlog comes on the first
+morning the backlog is back at 450 or under.
 
 ## 4. Look-alike sets (only when `lookalikesDue` is true)
 

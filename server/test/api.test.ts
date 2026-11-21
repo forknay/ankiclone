@@ -80,8 +80,11 @@ describe("auth", () => {
 describe("backlog limits", () => {
   it("keeps five new characters a day unless reviews pile up", () => {
     const due = { reading: true, lookalikes: true };
-    expect(limitsFor(250, due)).toEqual({ characters: 5, sentences: 100, lookalikeGroups: 8 });
-    expect(limitsFor(251, due)).toEqual({ characters: 2, sentences: 0, lookalikeGroups: 8 });
+    expect(limitsFor(300, due)).toEqual({ characters: 5, sentences: 100, lookalikeGroups: 8 });
+    expect([301, 375, 376, 450, 451, 525, 526, 600, 601, 2000].map((n) => limitsFor(n, due).characters))
+      .toEqual([4, 4, 3, 3, 2, 2, 1, 1, 0, 0]);
+    expect(limitsFor(450, due).sentences).toBe(100);
+    expect(limitsFor(451, due).sentences).toBe(0);
     expect(limitsFor(0, { reading: false, lookalikes: false })).toEqual({ characters: 5, sentences: 0, lookalikeGroups: 0 });
   });
 
